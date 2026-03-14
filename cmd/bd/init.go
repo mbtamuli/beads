@@ -55,6 +55,7 @@ environment variable.`,
 		team, _ := cmd.Flags().GetBool("team")
 		stealth, _ := cmd.Flags().GetBool("stealth")
 		skipHooks, _ := cmd.Flags().GetBool("skip-hooks")
+		skipAgents, _ := cmd.Flags().GetBool("skip-agents")
 		force, _ := cmd.Flags().GetBool("force")
 		fromJSONL, _ := cmd.Flags().GetBool("from-jsonl")
 		// Dolt server connection flags
@@ -189,8 +190,10 @@ environment variable.`,
 			prefix = filepath.Base(cwd)
 		}
 
-		// Normalize prefix: strip trailing hyphens
-		// The hyphen is added automatically during ID generation
+		// Normalize prefix: strip leading dots and trailing hyphens.
+		// Leading dots produce invalid Dolt database names (e.g. ".claude" -> "bd_.claude").
+		// The trailing hyphen is added automatically during ID generation.
+		prefix = strings.TrimLeft(prefix, ".")
 		prefix = strings.TrimRight(prefix, "-")
 
 		// Sanitize prefix for use as a MySQL database name.
@@ -369,11 +372,13 @@ environment variable.`,
 		if existingCfg, _ := configfile.Load(beadsDir); existingCfg != nil && existingCfg.DoltDatabase != "" {
 			dbName = existingCfg.DoltDatabase
 		} else if prefix != "" {
-			// Sanitize hyphens to underscores for SQL-idiomatic database names.
+			// Sanitize hyphens and dots to underscores for SQL-idiomatic database names.
+			// Dots are invalid in Dolt/MySQL identifiers (e.g. from ".claude" directories).
 			// Must match the sanitization applied to metadata.json DoltDatabase
 			// field (line below), otherwise init creates a database with one name
 			// but metadata.json records a different name, causing reopens to fail.
 			dbName = strings.ReplaceAll(prefix, "-", "_")
+			dbName = strings.ReplaceAll(dbName, ".", "_")
 		} else {
 			dbName = "beads"
 		}
@@ -802,8 +807,8 @@ environment variable.`,
 		}
 
 		// Add agent instructions to AGENTS.md
-		// Skip in stealth mode (user wants invisible setup) and quiet mode (suppress all output)
-		if !stealth {
+		// Skip in stealth mode (user wants invisible setup) or when explicitly skipped
+		if !stealth && !skipAgents {
 			agentsTemplate, _ := cmd.Flags().GetString("agents-template")
 			if isBareGitRepo() {
 				if !quiet {
@@ -933,6 +938,7 @@ func init() {
 	initCmd.Flags().Bool("stealth", false, "Enable stealth mode: global gitattributes and gitignore, no local repo tracking")
 	initCmd.Flags().Bool("setup-exclude", false, "Configure .git/info/exclude to keep beads files local (for forks)")
 	initCmd.Flags().Bool("skip-hooks", false, "Skip git hooks installation")
+	initCmd.Flags().Bool("skip-agents", false, "Skip AGENTS.md and Claude settings generation")
 	initCmd.Flags().Bool("force", false, "Force re-initialization even if database already has issues (may cause data loss)")
 	initCmd.Flags().Bool("from-jsonl", false, "Import issues from .beads/issues.jsonl instead of git history")
 	initCmd.Flags().String("destroy-token", "", "Explicit confirmation token for destructive re-init in non-interactive mode (format: 'DESTROY-<prefix>')")
